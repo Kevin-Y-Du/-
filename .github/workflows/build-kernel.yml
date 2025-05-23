@@ -126,13 +126,17 @@ jobs:
     - name: 配置内核选项
       run: |
         cd work/kernel_platform/common
-        echo -e "\n# SUSFS配置" >> arch/arm64/configs/gki_defconfig
+        echo -e "\n# 基础配置" >> arch/arm64/configs/gki_defconfig
         cat << 'EOT' >> arch/arm64/configs/gki_defconfig
         CONFIG_KSU=y
         CONFIG_KPM=y
-        CONFIG_KSU_SUSFS_SUS_SU=n
         CONFIG_KSU_MANUAL_HOOK=y
+        EOT
+        
+        echo -e "\n# SUSFS配置" >> arch/arm64/configs/gki_defconfig
+        cat << 'EOT' >> arch/arm64/configs/gki_defconfig
         CONFIG_KSU_SUSFS=y
+        CONFIG_KSU_SUSFS_SUS_SU=n
         CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y
         CONFIG_KSU_SUSFS_SUS_PATH=y
         CONFIG_KSU_SUSFS_SUS_MOUNT=y
@@ -147,6 +151,10 @@ jobs:
         CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y
         CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y
         CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
+        EOT
+        
+        echo -e "\n# 加密配置" >> arch/arm64/configs/gki_defconfig
+        cat << 'EOT' >> arch/arm64/configs/gki_defconfig
         CONFIG_CRYPTO_LZ4HC=y
         CONFIG_CRYPTO_LZ4K=y
         CONFIG_CRYPTO_LZ4KD=y
