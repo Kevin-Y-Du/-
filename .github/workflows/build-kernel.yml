@@ -53,13 +53,24 @@ jobs:
 
     - name: 最大化构建空间
       run: |
+        # 清理系统空间
         sudo rm -rf /usr/share/dotnet
         sudo rm -rf /usr/local/lib/android
         sudo rm -rf /opt/hostedtoolcache/CodeQL
         sudo rm -rf /usr/local/haskell
         sudo apt clean
         sudo rm -rf /tmp/*
+        
+        # 创建并启用20G的swap
+        sudo swapoff -a
+        sudo dd if=/dev/zero of=/swapfile bs=1G count=20
+        sudo chmod 600 /swapfile
+        sudo mkswap /swapfile
+        sudo swapon /swapfile
+        
+        # 显示系统资源信息
         df -h
+        free -h
 
     - name: 安装repo工具
       run: |
@@ -176,4 +187,4 @@ jobs:
       with:
         name: kernel-package
         path: work/kernel_platform/dist/SuKiSu_*.zip
-        retention-days: 5
+        retention-days: 5 
