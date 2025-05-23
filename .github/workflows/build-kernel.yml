@@ -8,7 +8,7 @@ on:
         required: true
         default: 'sm8750'
       FEIL:
-        description: '设备代号'
+        description: '设备型号'
         required: true
         default: 'oneplus_ace5_pro'
       CPUD:
@@ -28,11 +28,6 @@ on:
         required: true
         default: '-android15-8-g013ec21bba94-abogki383916444-@DUGH'
 
-# 添加权限配置
-permissions:
-  contents: read
-  actions: write
-
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -40,37 +35,27 @@ jobs:
     steps:
     - name: 检出代码
       uses: actions/checkout@v4
-      with:
-        fetch-depth: 1
 
     - name: 设置环境
       run: |
-        sudo apt-get update
-        sudo apt-get install -y python3 git curl ccache gcc flex bison openssl libelf-dev build-essential bc
-        echo "CCACHE_COMPILERCHECK=%compiler% -dumpmachine; %compiler% -dumpversion" >> $GITHUB_ENV
-        echo "CCACHE_NOHASHDIR=true" >> $GITHUB_ENV
-        echo "CCACHE_HARDLINK=true" >> $GITHUB_ENV
-
-    - name: 最大化构建空间
-      run: |
-        # 清理系统空间
-        sudo rm -rf /usr/share/dotnet
-        sudo rm -rf /usr/local/lib/android
-        sudo rm -rf /opt/hostedtoolcache/CodeQL
-        sudo rm -rf /usr/local/haskell
-        sudo apt clean
-        sudo rm -rf /tmp/*
-        
-        # 创建并启用20G的swap
         sudo swapoff -a
-        sudo dd if=/dev/zero of=/swapfile bs=1G count=20
+        sudo rm -f /swapfile
+        sudo fallocate -l 5G /swapfile
         sudo chmod 600 /swapfile
         sudo mkswap /swapfile
         sudo swapon /swapfile
+        sudo swapon --show
         
-        # 显示系统资源信息
-        df -h
-        free -h
+    - name: 安装依赖
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y python3 git curl ccache gcc flex bison openssl libelf-dev build-essential bc
+        
+    - name: 设置ccache
+      run: |
+        export CCACHE_COMPILERCHECK="%compiler% -dumpmachine; %compiler% -dumpversion"
+        export CCACHE_NOHASHDIR="true"
+        export CCACHE_HARDLINK="true"
 
     - name: 安装repo工具
       run: |
@@ -78,14 +63,19 @@ jobs:
         chmod a+x ~/repo
         sudo mv ~/repo /usr/local/bin/repo
 
-    - name: 初始化工作目录
+    - name: 清理系统空间
       run: |
-        mkdir -p work
-        mkdir -p kernel_output_dir
+        sudo rm -rf /usr/share/dotnet
+        sudo rm -rf /usr/local/lib/android
+        sudo rm -rf /opt/hostedtoolcache/CodeQL
+        sudo rm -rf /usr/local/haskell
+        sudo apt clean
+        sudo rm -rf /tmp/*
+        df -h
 
-    - name: 同步源码
+    - name: 下载源码
       run: |
-        cd work
+        mkdir -p work && cd work
         repo init -u https://github.com/OnePlusOSS/kernel_manifest.git \
           -b refs/heads/oneplus/${{ github.event.inputs.CPU }} \
           -m ${{ github.event.inputs.FEIL }}.xml \
@@ -126,30 +116,32 @@ jobs:
     - name: 配置内核选项
       run: |
         cd work/kernel_platform/common
-        sed -i '/CONFIG_RUNTIME_TESTING_MENU is not set/a\
-        CONFIG_KSU=y\
-        CONFIG_KPM=y\
-        CONFIG_KSU_MANUAL_HOOK=y\
-        CONFIG_KSU_SUSFS=y\
-        CONFIG_KSU_SUSFS_SUS_SU=n\
-        CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y\
-        CONFIG_KSU_SUSFS_SUS_PATH=y\
-        CONFIG_KSU_SUSFS_SUS_MOUNT=y\
-        CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT=y\
-        CONFIG_KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT=y\
-        CONFIG_KSU_SUSFS_SUS_KSTAT=y\
-        CONFIG_KSU_SUSFS_SUS_OVERLAYFS=n\
-        CONFIG_KSU_SUSFS_TRY_UMOUNT=y\
-        CONFIG_KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT=y\
-        CONFIG_KSU_SUSFS_SPOOF_UNAME=y\
-        CONFIG_KSU_SUSFS_ENABLE_LOG=y\
-        CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y\
-        CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y\
-        CONFIG_KSU_SUSFS_OPEN_REDIRECT=y\
-        CONFIG_CRYPTO_LZ4HC=y\
-        CONFIG_CRYPTO_LZ4K=y\
-        CONFIG_CRYPTO_LZ4KD=y\
-        CONFIG_CRYPTO_842=y' arch/arm64/configs/gki_defconfig
+        echo -e "\n# SUSFS配置" >> arch/arm64/configs/gki_defconfig
+        cat <<EOT >> arch/arm64/configs/gki_defconfig
+        CONFIG_KSU=y
+        CONFIG_KPM=y
+        CONFIG_KSU_SUSFS_SUS_SU=n
+        CONFIG_KSU_MANUAL_HOOK=y
+        CONFIG_KSU_SUSFS=y
+        CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y
+        CONFIG_KSU_SUSFS_SUS_PATH=y
+        CONFIG_KSU_SUSFS_SUS_MOUNT=y
+        CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT=y
+        CONFIG_KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT=y
+        CONFIG_KSU_SUSFS_SUS_KSTAT=y
+        CONFIG_KSU_SUSFS_SUS_OVERLAYFS=n
+        CONFIG_KSU_SUSFS_TRY_UMOUNT=y
+        CONFIG_KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT=y
+        CONFIG_KSU_SUSFS_SPOOF_UNAME=y
+        CONFIG_KSU_SUSFS_ENABLE_LOG=y
+        CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y
+        CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y
+        CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
+        CONFIG_CRYPTO_LZ4HC=y
+        CONFIG_CRYPTO_LZ4K=y
+        CONFIG_CRYPTO_LZ4KD=y
+        CONFIG_CRYPTO_842=y
+        EOT
 
     - name: 设置内核名称
       run: |
@@ -184,5 +176,4 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: kernel-package
-        path: work/kernel_platform/dist/SuKiSu_*.zip
-        retention-days: 5 
+        path: work/kernel_platform/dist/SuKiSu_*.zip 
