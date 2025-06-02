@@ -1,4 +1,4 @@
-name: Run Full Kernel Build
+name: Full Kernel Build Workflow
 
 on:
   push:
@@ -21,11 +21,76 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y python3 git curl ccache gcc flex bison bazel openssl libelf-dev zip
 
-      # Step 3: Make the script executable
-      - name: Make action.sh executable
-        run: chmod +x ./action.sh
-
-      # Step 4: Run the script
-      - name: Run action.sh
+      # Step 3: Initialize environment variables
+      - name: Set environment variables
         run: |
-          ./action.sh sm8750 oneplus_ace5_pro sun android15 6.6 "-android15-8-g013ec21bba94-abogki383916444@DUGH"
+          export CCACHE_COMPILERCHECK="%compiler% -dumpmachine; %compiler% -dumpversion"
+          export CCACHE_NOHASHDIR="true"
+          export CCACHE_HARDLINK="true"
+
+      # Step 4: Maximize build space
+      - name: Maximize build space
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          sudo rm -rf /usr/local/haskell
+          sudo apt clean
+          sudo rm -rf /tmp/*
+          sudo df -h
+
+      # Step 5: Install repo tool
+      - name: Install repo tool
+        run: |
+          if [ ! -f "/usr/local/bin/repo" ]; then
+            curl -s https://storage.googleapis.com/git-repo-downloads/repo > ~/repo
+            chmod a+x ~/repo
+            sudo mv ~/repo /usr/local/bin/repo
+          fi
+
+      # Step 6: Manage source code
+      - name: Manage source code
+        run: |
+          mkdir -p work && cd work
+          repo init -u https://github.com/OnePlusOSS/kernel_manifest.git \
+            -b refs/heads/oneplus/sm8750 \
+            -m oneplus_ace5_pro.xml \
+            --depth=1 --repo-url=https://gerrit.googlesource.com/git-repo
+          repo sync -c -j$(nproc --all) --no-tags --force-sync
+
+      # Step 7: Configure SukiSU
+      - name: Configure SukiSU
+        run: |
+          cd /root/work/kernel_platform
+          curl -LSs "https://raw.githubusercontent.com/ShirkNeko/SukiSU-Ultra/main/kernel/setup.sh" | bash -s susfs-dev
+          cd KernelSU
+          KSU_VERSION=$(expr $(git rev-list --count main) "+" 10606)
+          sed -i "s/DKSU_VERSION=12800/DKSU_VERSION=${KSU_VERSION}/" kernel/Makefile
+
+      # Step 8: Apply patches
+      - name: Apply patches
+        run: |
+          cd work
+          git clone https://gitlab.com/simonpunk/susfs4ksu.git -b gki-android15-6.6
+          git clone https://github.com/ExmikoN/SukiSU_patch.git
+          cp susfs4ksu/kernel_patches/50_add_susfs_in_gki-android15-6.6.patch kernel_platform/common/
+          cp susfs4ksu/kernel_patches/fs/* kernel_platform/common/fs/
+          cp susfs4ksu/kernel_patches/include/linux/* kernel_platform/common/include/linux/
+          cd kernel_platform/common
+          patch -p1 < 50_add_susfs_in_gki-android15-6.6.patch || true
+
+      # Step 9: Build kernel
+      - name: Build kernel
+        run: |
+          cd work/kernel_platform
+          tools/bazel run --config=fast --config=stamp --lto=thin //common:kernel_aarch64_dist -- --dist_dir=dist
+
+      # Step 10: Package kernel
+      - name: Package kernel
+        run: |
+          cd /root/work/kernel_platform/dist
+          git clone -b a5p https://github.com/aa123330/AnyKernel3.git --depth=1
+          rm -rf AnyKernel3/.git AnyKernel3/push.sh
+          cp Image AnyKernel3/
+          cd AnyKernel3
+          zip -r "../SuKiSu_${KSU_VERSION}_oneplus_ace5_pro_$(date +%Y%m%d%H%M).zip" *
