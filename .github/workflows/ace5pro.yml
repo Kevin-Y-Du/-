@@ -1,13 +1,6 @@
 name: 构建 SukiSU 内核
 
 on:
-  push:
-    branches:
-      - main
-  pull_request:
-    branches:
-      - main
-on:
   workflow_dispatch:
     inputs:
       CPU:
