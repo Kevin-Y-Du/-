@@ -1,0 +1,31 @@
+name: Run Shell Script on Arch Linux (Co-located Script)
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest # 使用 Ubuntu runner 作为 Docker 宿主
+
+    container:
+      image: archlinux:latest # 在 Arch Linux 容器中运行
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        # 当 actions/checkout@v4 克隆你的仓库时，
+        # .github/workflows/ 目录下的所有内容（包括 your-script.sh）
+        # 都会被克隆到容器中的工作目录。
+
+      - name: Install dependencies (if any)
+        run: |
+          pacman -Syu --noconfirm
+          # pacman -S --noconfirm git base-devel # 安装你的脚本可能需要的依赖
+
+      - name: Make script executable
+        run: chmod +x ./your-script.sh # 直接引用，因为脚本就在当前工作目录
+
+      - name: Run your shell script
+        run: ./your-script.sh # 直接运行
