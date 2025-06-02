@@ -91,7 +91,8 @@ jobs:
           sudo apt-get clean
           sudo rm -rf /tmp/*
           df -h
-          cd $GITHUB_WORKSPACE/work/kernel_platform || mkdir -p $GITHUB_WORKSPACE/work/kernel_platform && cd $GITHUB_WORKSPACE/work/kernel_platform
+          mkdir -p $GITHUB_WORKSPACE/work/kernel_platform
+          cd $GITHUB_WORKSPACE/work/kernel_platform
           tools/bazel clean --expunge || true
           cd $GITHUB_WORKSPACE
 
@@ -128,9 +129,9 @@ jobs:
                 -m $FEIL.xml \
                 --depth=1 --repo-url=https://gerrit.googlesource.com/git-repo || exit 1
             fi
-            for retry in {1..5}; do
-              echo "同步尝试 ($retry/5)..."
-              if repo sync -c -j$(nproc --all) --no-tags --force-sync; then
+            for retry in {1..3}; do
+              echo "同步尝试 ($retry/3)..."
+              if repo sync -c -j4 --no-tags --force-sync; then
                 echo "同步成功"
                 break
               else
@@ -148,8 +149,7 @@ jobs:
               -b refs/heads/oneplus/$CPU \
               -m $FEIL.xml \
               --depth=1 --repo-url=https://gerrit.googlesource.com/git-repo || exit 1
-            repo sync -c -j$(nproc --all) --no-tags --force-sync || exit 1
-            rm -rf /root/work/kernel_platform/common/android/abi_gki_protected_exports_* 2>/dev/null || true
+            repo sync -c -j4 --no-tags --force-sync || exit 1
             cd ..
           fi
           cd $GITHUB_WORKSPACE/work/kernel_platform
