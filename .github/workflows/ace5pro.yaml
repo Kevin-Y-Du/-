@@ -1,165 +1,31 @@
-name: 构建内核与SukiSU和SUSFS
+name: Run Full Kernel Build
+
 on:
   push:
     branches:
-      - main  # 当推送到 main 分支时触发
-  workflow_dispatch:  # 支持手动触发
+      - main
+  pull_request:
 
 jobs:
-  build-kernel:
+  build:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write  # 授予内容写入权限以便上传产物
-    env:
-      CPU: sm8750  # 默认 CPU 型号
-      FEIL: oneplus_ace5_pro  # 默认设备型号
-      CPUD: sun  # 默认 CPU 代号
-      ANDROID_VERSION: android15  # 默认 Android 版本
-      KERNEL_VERSION: 6.6  # 默认内核版本
-      KERNEL_NAME: -android15-8-g013ec21bba94-abogki383916444@DUGH  # 默认内核名称
-      CCACHE_COMPILERCHECK: "%compiler% -dumpmachine; %compiler% -dumpversion"  # ccache 编译器检查配置
-      CCACHE_NOHASHDIR: "true"  # ccache 禁用目录哈希
-      CCACHE_HARDLINK: "true"  # ccache 启用硬链接
-    steps:
-      - name: 检查出代码库
-        uses: actions/checkout@v4
 
-      - name: 安装系统依赖
+    steps:
+      # Step 1: Checkout the repository
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      # Step 2: Set up dependencies
+      - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y python3 git curl ccache gcc flex bison bazel openssl libelf zip
-        shell: bash
+          sudo apt-get install -y python3 git curl ccache gcc flex bison bazel openssl libelf-dev zip
 
-      - name: 设置 repo 工具
+      # Step 3: Make the script executable
+      - name: Make action.sh executable
+        run: chmod +x ./action.sh
+
+      # Step 4: Run the script
+      - name: Run action.sh
         run: |
-          if [ ! -f "/usr/local/bin/repo" ]; then
-            curl -s https://storage.googleapis.com/git-repo-downloads/repo > ~/repo
-            chmod a+x ~/repo
-            sudo mv ~/repo /usr/local/bin/repo
-          fi
-        shell: bash
-
-      - name: 清理补丁目录
-        run: |
-          for dir in SukiSU_patch susfs4ksu kernel_patches; do
-            if [ -d "$dir" ]; then
-              echo "删除旧补丁目录: $dir"
-              rm -rf "$dir"
-            fi
-          done
-        shell: bash
-
-      - name: 初始化和同步源码
-        run: |
-          mkdir -p work
-          cd work
-          repo init -u https://github.com/OnePlusOSS/kernel_manifest.git \
-            -b refs/heads/oneplus/${{ env.CPU }} \
-            -m ${{ env.FEIL }}.xml \
-            --depth=1 --repo-url=https://gerrit.googlesource.com/git-repo
-          repo sync -c -j$(nproc --all) --no-tags --force-sync
-        shell: bash
-
-      - name: 配置 SukiSU
-        run: |
-          cd work/kernel_platform
-          curl -LSs "https://raw.githubusercontent.com/ShirkNeko/SukiSU-Ultra/main/kernel/setup.sh" | bash -s susfs-dev
-          cd KernelSU
-          KSU_VERSION=$(expr $(git rev-list --count main) + 10606)
-          sed -i "s/DKSU_VERSION=12800/DKSU_VERSION=${KSU_VERSION}/" kernel/Makefile
-        shell: bash
-
-      - name: 配置 SUSFS
-        run: |
-          cd work
-          git clone https://gitlab.com/simonpunk/susfs4ksu.git -b gki-${{ env.ANDROID_VERSION }}-${{ env.KERNEL_VERSION }}
-          git clone https://github.com/ExmikoN/SukiSU_patch.git
-          cp susfs4ksu/kernel_patches/50_add_susfs_in_gki-${{ env.ANDROID_VERSION }}-${{ env.KERNEL_VERSION }}.patch kernel_platform/common/
-          cp susfs4ksu/kernel_patches/fs/* kernel_platform/common/fs/
-          cp susfs4ksu/kernel_patches/include/linux/* kernel_platform/common/include/linux/
-          cp -r SukiSU_patch/other/lz4k/include/linux/* kernel_platform/common/include/linux
-          cp -r SukiSU_patch/other/lz4k/lib/* kernel_platform/common/lib
-          cp -r SukiSU_patch/other/lz4k/crypto/* kernel_platform/common/crypto
-          cd kernel_platform/common
-          sed -i 's/-32,12 +32,38/-32,11 +32,37/g' 50_add_susfs_in_gki-${{ env.ANDROID_VERSION }}-${{ env.KERNEL_VERSION }}.patch
-          sed -i '/#include <trace\/hooks\/fs.h>/d' 50_add_susfs_in_gki-${{ env.ANDROID_VERSION }}-${{ env.KERNEL_VERSION }}.patch
-          patch -p1 < 50_add_susfs_in_gki-${{ env.ANDROID_VERSION }}-${{ env.KERNEL_VERSION }}.patch || true
-          cp ../../SukiSU_patch/hooks/syscall_hooks.patch ./
-          patch -p1 -F 3 < syscall_hooks.patch || true
-          cp ../../SukiSU_patch/other/lz4k_patch/${{ env.KERNEL_VERSION }}/lz4kd.patch ./
-          patch -p1 -F 3 < lz4kd.patch || true
-        shell: bash
-
-      - name: 配置内核选项
-        run: |
-          cd work/kernel_platform/common
-          cat <<EOT >> arch/arm64/configs/gki_defconfig
-          # SUSFS 配置
-          CONFIG_KSU=y
-          CONFIG_KPM=y
-          CONFIG_KSU_SUSFS_SUS_SU=n
-          CONFIG_KSU_MANUAL_HOOK=y
-          CONFIG_KSU_SUSFS=y
-          CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y
-          CONFIG_KSU_SUSFS_SUS_PATH=y
-          CONFIG_KSU_SUSFS_SUS_MOUNT=y
-          CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT=y
-          CONFIG_KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT=y
-          CONFIG_KSU_SUSFS_SUS_KSTAT=y
-          CONFIG_KSU_SUSFS_SUS_OVERLAYFS=n
-          CONFIG_KSU_SUSFS_TRY_UMOUNT=y
-          CONFIG_KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT=y
-          CONFIG_KSU_SUSFS_SPOOF_UNAME=y
-          CONFIG_KSU_SUSFS_ENABLE_LOG=y
-          CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y
-          CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y
-          CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
-          CONFIG_CRYPTO_LZ4HC=y
-          CONFIG_CRYPTO_LZ4K=y
-          CONFIG_CRYPTO_LZ4KD=y
-          CONFIG_CRYPTO_842=y
-          EOT
-          sed -i 's/check_defconfig//' build.config.gki
-          git add -A && git commit -a -m "BUILD Kernel"
-        shell: bash
-
-      - name: 设置内核名称
-        run: |
-          cd work/kernel_platform
-          sed -i 's/res="\$res\$(cat "\$file")"/res="${{ env.KERNEL_NAME }}"/g' common/scripts/setlocalversion
-        shell: bash
-
-      - name: 编译内核
-        run: |
-          cd work/kernel_platform
-          tools/bazel run --config=fast --config=stamp --lto=thin //common:kernel_aarch64_dist -- --dist_dir=dist
-        shell: bash
-
-      - name: 打包 AnyKernel3
-        run: |
-          cd work/kernel_platform/dist
-          if [ "${{ env.FEIL }}" = "oneplus_ace5_pro" ]; then
-            git clone -b a5p https://github.com/aa123330/AnyKernel3.git --depth=1
-          else
-            git clone https://github.com/aa123330/AnyKernel3.git --depth=1
-          fi
-          rm -rf AnyKernel3/.git AnyKernel3/push.sh
-          cp Image AnyKernel3/
-          cd AnyKernel3
-          cp ${{ github.workspace }}/work/SukiSU_patch/kpm/patch_linux ./
-          chmod 777 patch_linux
-          ./patch_linux
-          rm -rf Image && mv oImage Image
-          rm -rf patch_linux
-          timestamp=$(date +%Y%m%d%H%M)
-          output_zip="SuKiSu_${KSU_VERSION}_${{ env.FEIL }}_${timestamp}.zip"
-          zip -r "../${output_zip}" *
-          mkdir -p "${{ github.workspace }}/kernel_output_dir"
-          mv "../${output_zip}" "${{ github.workspace }}/kernel_output_dir/"
-        shell: bash
-
-      - name: 上传刷机包
-        uses: actions/upload-artifact@v4
-        with:
-          name: kernel-zip
-          path: ${{ github.workspace }}/kernel_output_dir/
+          ./action.sh sm8750 oneplus_ace5_pro sun android15 6.6 "-android15-8-g013ec21bba94-abogki383916444@DUGH"
