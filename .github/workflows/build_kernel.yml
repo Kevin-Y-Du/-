@@ -1,6 +1,12 @@
 name: 构建 SukiSU 内核
 
 on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
   workflow_dispatch:
     inputs:
       CPU:
@@ -31,13 +37,10 @@ on:
 jobs:
   build-kernel:
     runs-on: ubuntu-latest
-
     steps:
-      # 检出代码仓库
       - name: 检出代码仓库
         uses: actions/checkout@v4
 
-      # 设置环境变量
       - name: 设置环境变量
         run: |
           echo "CCACHE_COMPILERCHECK=%compiler% -dumpmachine; %compiler% -dumpversion" >> $GITHUB_ENV
@@ -52,22 +55,33 @@ jobs:
           echo "WORKSPACE_ROOT=$GITHUB_WORKSPACE" >> $GITHUB_ENV
           echo "OUTPUT_DIR=$GITHUB_WORKSPACE/kernel_output_dir" >> $GITHUB_ENV
 
-      # 安装系统依赖
       - name: 安装系统依赖
         run: |
           sudo apt-get update
-          sudo apt-get install -y python3 git curl ccache gcc flex bison bazel libssl-dev libelf-dev zip
+          sudo apt-get install -y python3 git curl ccache gcc flex bison libssl-dev libelf-dev zip
+          sudo apt-get install -y apt-transport-https curl gnupg
+          curl -fsSL https://bazel.build/bazel-release.pub.gpg | gpg --dearmor > bazel.gpg
+          sudo mv bazel.gpg /etc/apt/trusted.gpg.d/
+          echo "deb [arch=amd64] https://storage.googleapis.com/bazel-apt stable jdk1.8" | sudo tee /etc/apt/sources.list.d/bazel.list
+          sudo apt-get update
+          sudo apt-get install -y bazel
 
-      # 安装 repo 工具
       - name: 安装 repo 工具
         run: |
           if [ ! -f "/usr/local/bin/repo" ]; then
-            curl -s https://storage.googleapis.com/git-repo-downloads/repo > ~/repo
+            for attempt in {1..3}; do
+              curl -s --connect-timeout 10 https://storage.googleapis.com/git-repo-downloads/repo > ~/repo && break
+              echo "下载 repo 失败，重试 ($attempt/3)..."
+              sleep 5
+            done
+            if [ ! -f "~/repo" ]; then
+              echo "无法下载 repo 工具"
+              exit 1
+            fi
             chmod a+x ~/repo
             sudo mv ~/repo /usr/local/bin/repo
           fi
 
-      # 清理系统空间
       - name: 清理系统空间
         run: |
           sudo rm -rf /usr/share/dotnet
@@ -78,10 +92,9 @@ jobs:
           sudo rm -rf /tmp/*
           df -h
           cd $GITHUB_WORKSPACE/work/kernel_platform || mkdir -p $GITHUB_WORKSPACE/work/kernel_platform && cd $GITHUB_WORKSPACE/work/kernel_platform
-          tools/bazel clean --expunge
+          tools/bazel clean --expunge || true
           cd $GITHUB_WORKSPACE
 
-      # 清理补丁目录
       - name: 清理补丁目录
         run: |
           for dir in SukiSU_patch susfs4ksu kernel_patches; do
@@ -91,7 +104,6 @@ jobs:
             fi
           done
 
-      # 管理源码
       - name: 管理内核源码
         run: |
           if [[ -d "work/.repo" && ! -f "work/.repo/manifest.xml" ]]; then
@@ -151,7 +163,6 @@ jobs:
           fi
           cd $GITHUB_WORKSPACE
 
-      # 配置 SukiSU
       - name: 配置 SukiSU
         run: |
           cd $GITHUB_WORKSPACE/work/kernel_platform || exit 1
@@ -163,7 +174,6 @@ jobs:
           find KernelSU/ -type l -exec ls -l {} \; | awk '{if($11 == $9) exit 1}' || exit 1
           cd $GITHUB_WORKSPACE
 
-      # 配置 SUSFS
       - name: 配置 SUSFS
         run: |
           cd $GITHUB_WORKSPACE/work || exit 1
@@ -213,7 +223,6 @@ EOT
           git add -A && git commit -a -m "BUILD Kernel"
           cd $GITHUB_WORKSPACE
 
-      # 设置内核名称
       - name: 设置内核名称
         run: |
           cd $GITHUB_WORKSPACE/work/kernel_platform || exit 1
@@ -224,7 +233,6 @@ EOT
           sed -i 's/res="\$res\$(cat "\$file")"/res="'$KERNEL_NAME'"/g' common/scripts/setlocalversion
           cd $GITHUB_WORKSPACE
 
-      # 构建内核
       - name: 构建内核
         run: |
           cd $GITHUB_WORKSPACE/work/kernel_platform || exit 1
@@ -236,7 +244,6 @@ EOT
           fi
           tools/bazel run --config=fast --config=stamp --lto=thin //common:kernel_aarch64_dist -- --dist_dir=dist
 
-      # 打包 AnyKernel3
       - name: 打包 AnyKernel3
         run: |
           cd $GITHUB_WORKSPACE/work/kernel_platform/dist || exit 1
@@ -262,7 +269,6 @@ EOT
           echo "构建完成！刷机包路径："
           echo "$OUTPUT_DIR/${output_zip}"
 
-      # 上传构建产物
       - name: 上传刷机包
         uses: actions/upload-artifact@v4
         with:
